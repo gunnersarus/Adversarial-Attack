@@ -1,0 +1,118 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLaMa Web Interface</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h1 class="text-2xl font-bold mb-4">LLaMa Model Interface</h1>
+            
+            <!-- Defense Toggle -->
+            <div class="mb-6 flex items-center">
+                <span class="mr-3">Defense Status:</span>
+                <button id="defenseToggle" class="px-4 py-2 rounded-md text-white font-medium"></button>
+            </div>
+
+            <!-- Input Form -->
+            <div class="mb-6">
+                <label class="block mb-2 font-medium" for="prompt">Enter your prompt:</label>
+                <textarea id="prompt" class="w-full h-32 p-3 border rounded-md resize-none"></textarea>
+            </div>
+            
+            <div class="mb-6">
+                <label class="block mb-2 font-medium" for="maxTokens">Max tokens:</label>
+                <input type="number" id="maxTokens" value="100" min="1" max="1000" 
+                       class="w-32 p-2 border rounded-md">
+            </div>
+
+            <button id="generate" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">
+                Generate Response
+            </button>
+        </div>
+
+        <!-- Response Section -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-bold mb-4">Response</h2>
+            <div id="safety-info" class="mb-4 p-4 rounded-md hidden"></div>
+            <div id="response" class="whitespace-pre-wrap"></div>
+        </div>
+    </div>
+
+    <script>
+        const defenseToggle = document.getElementById('defenseToggle');
+        const generateBtn = document.getElementById('generate');
+        const promptInput = document.getElementById('prompt');
+        const maxTokensInput = document.getElementById('maxTokens');
+        const responseDiv = document.getElementById('response');
+        const safetyInfoDiv = document.getElementById('safety-info');
+
+        let defenseEnabled = {{ 'true' if defense_status else 'false' }};
+        
+        function updateDefenseButton() {
+            defenseToggle.textContent = defenseEnabled ? 'Defense Active' : 'Defense Disabled';
+            defenseToggle.className = defenseEnabled 
+                ? 'px-4 py-2 rounded-md text-white font-medium bg-green-600 hover:bg-green-700'
+                : 'px-4 py-2 rounded-md text-white font-medium bg-red-600 hover:bg-red-700';
+        }
+        
+        updateDefenseButton();
+
+        defenseToggle.addEventListener('click', async () => {
+            const response = await fetch('/toggle_defense', {
+                method: 'POST',
+            });
+            const data = await response.json();
+            defenseEnabled = data.defense_enabled;
+            updateDefenseButton();
+        });
+
+        generateBtn.addEventListener('click', async () => {
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+            responseDiv.textContent = 'Generating response...';
+            safetyInfoDiv.className = 'mb-4 p-4 rounded-md hidden';
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: promptInput.value,
+                        max_tokens: parseInt(maxTokensInput.value)
+                    }),
+                });
+
+                const data = await response.json();
+                responseDiv.textContent = data.response;
+
+                if (data.safety_info.defense_active) {
+                    safetyInfoDiv.className = 'mb-4 p-4 rounded-md ' + 
+                        (data.safety_info.is_safe ? 'bg-green-100' : 'bg-red-100');
+                    safetyInfoDiv.innerHTML = `
+                        <p><strong>Safety Check:</strong> ${data.safety_info.is_safe ? 'Passed' : 'Failed'}</p>
+                        <p><strong>Total Perplexity:</strong> ${data.safety_info.metrics.total_perplexity.toFixed(2)}</p>
+                        <p><strong>Window Perplexities:</strong> ${data.safety_info.metrics.window_perplexities.map(p => p.toFixed(2)).join(', ')}</p>
+                    `;
+                } else {
+                    safetyInfoDiv.className = 'mb-4 p-4 rounded-md bg-yellow-100';
+                    safetyInfoDiv.innerHTML = '<p><strong>Safety Check:</strong> Defense Disabled</p>';
+                }
+            } catch (error) {
+                responseDiv.textContent = 'Error generating response: ' + error.message;
+                safetyInfoDiv.className = 'mb-4 p-4 rounded-md bg-red-100';
+                safetyInfoDiv.innerHTML = '<p><strong>Error:</strong> Failed to generate response</p>';
+            }
+
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Response';
+        });
+    </script>
+</body>
+</html>
